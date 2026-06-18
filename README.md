@@ -6,35 +6,65 @@ Hold a mouse button, scroll continuously. Built for reading long-strip content (
 
 Most input automation tools (`xdotool`, etc.) only work on X11. This script instead:
 
-- **Grabs your mouse's input device exclusively** via `python-evdev`, reading raw events straight from `/dev/input` — works regardless of compositor (X11 or Wayland), and means the trigger button (e.g. the middle button) never reaches the rest of the system. That's what stops things like middle-click-paste from firing while the script runs.
-- **Recreates a virtual mouse via `uinput`**, forwarding every event except the trigger button untouched — so normal movement, clicks, and the native scroll wheel keep working exactly as before.
-- Writes synthetic scroll-wheel ticks directly to that virtual device while the trigger button is held.
+- Listens for raw button press/release events via **`python-evdev`**, reading directly from `/dev/input`, which works regardless of compositor (X11 or Wayland).
+- Simulates mouse wheel scroll events via **`ydotool`**, which also works on both X11 and Wayland since it operates through the kernel's `uinput` interface.
 
-Release the button and scrolling stops; the trigger button itself is simply swallowed and does nothing else.
+While your chosen button is held down, the script repeatedly fires scroll-wheel ticks. Release the button and it stops.
 
 ## Requirements
 
 - Linux with a Wayland (or X11) compositor
+- [`ydotool`](https://github.com/ReimuNotMoe/ydotool) + the `ydotoold` daemon
 - [`python-evdev`](https://github.com/gvalkov/python-evdev)
-- Membership in the `input` group, plus write access to `/dev/uinput`
+- Membership in the `input` group (to read input devices without root)
 
 ### Install (Arch Linux)
 
 ```bash
-sudo pacman -S python-evdev
+sudo pacman -S ydotool python-evdev
 sudo usermod -aG input $USER
-
-# allow the input group to write to /dev/uinput (needed to create the
-# virtual passthrough mouse):
-echo 'KERNEL=="uinput", GROUP="input", MODE="0660"' | sudo tee /etc/udev/rules.d/99-uinput.rules
-sudo udevadm control --reload-rules && sudo udevadm trigger
 ```
 
-Log out and back in (or reboot) for the group change to take effect.
+Log out and back in for the group change to take effect.
 
-> On other distros, install `python-evdev` (or `pip install evdev --break-system-packages`) via your package manager of choice, and adjust the udev rule path as needed.
+> On other distros, install `ydotool` and `python-evdev` (or `pip install evdev --break-system-packages`) via your package manager of choice.
 
-## Usage
+## Quick start (recommended)
+
+Use the included `run.sh` wrapper — it starts `ydotoold` for you (only if it isn't already running), waits for it to be ready, launches `autoscroll.py`, and cleans up the daemon when you quit:
+
+```bash
+chmod +x run.sh
+./run.sh
+```
+
+This still asks for your `sudo` password to start `ydotoold` the first time in a session, but you won't need a second terminal or to remember the daemon command yourself.
+
+## Manual setup (alternative)
+
+If you'd rather manage things yourself instead of using `run.sh`:
+
+**1. Start the `ydotoold` daemon** (does the actual input simulation):
+
+```bash
+sudo ydotoold --socket-path="$HOME/.ydotool_socket" --socket-own="$(id -u):$(id -g)"
+```
+
+Leave this running in a terminal.
+
+**2. Point `ydotool` at that socket:**
+
+```bash
+export YDOTOOL_SOCKET="$HOME/.ydotool_socket"
+```
+
+**3. Run the script directly:**
+
+```bash
+python3 autoscroll.py
+```
+
+## Configuring your trigger button
 
 **1. List your input devices** to find your mouse:
 
@@ -69,13 +99,7 @@ SCROLL_DIRECTION = -1                 # -1 = down, 1 = up
 SCROLL_INTERVAL = 0.05                # seconds between ticks; lower = faster
 ```
 
-**4. Run it:**
-
-```bash
-python3 autoscroll.py
-```
-
-Hold the configured button to scroll; release to stop. `Ctrl+C` to quit the script entirely.
+Then run via `./run.sh` (or `python3 autoscroll.py` if you set up `ydotoold` manually).
 
 ## Configuration reference
 
@@ -86,17 +110,21 @@ Hold the configured button to scroll; release to stop. `Ctrl+C` to quit the scri
 | `SCROLL_DIRECTION` | `-1` scrolls down, `1` scrolls up |
 | `SCROLL_INTERVAL` | Delay (seconds) between scroll ticks — lower is faster |
 
+## A note on using the actual middle mouse button as the trigger
+
+If your trigger button is the physical middle button, you may notice it still performs its normal OS-level action (e.g. "paste primary selection") in addition to triggering scroll, since this script only listens to the device — it doesn't intercept/suppress the event system-wide. The simplest workaround is picking a different physical button (a side button, etc.) that doesn't have a conflicting default action.
+
 ## Troubleshooting
 
-- **Permission denied on `/dev/input/eventX` or `/dev/uinput`** — confirm you're in the `input` group (`groups $USER`), that the `99-uinput.rules` udev rule was applied, and that you've logged out/in since adding yourself to the group.
-- **Mouse seems "dead" while the script runs** — check the terminal for errors; if the script crashed without reaching the `finally` block, the grab is released automatically once the process exits, but if it somehow doesn't, unplug/replug the mouse (or log out and back in) to reset it.
+- **Permission denied on `/dev/input/eventX`** — confirm you're in the `input` group (`groups $USER`) and have logged out/in since adding yourself.
+- **Script runs but nothing scrolls** — make sure `ydotoold` is running (or use `run.sh`, which handles this) and `YDOTOOL_SOCKET` is exported in the same terminal you're running the script from.
 - **Wrong device picked up** — re-run `--list` to double check the device path; some mice expose multiple event nodes (one for movement, one for buttons/extra keys).
 
 ## Limitations
 
 - Scrolling is tick-based (discrete wheel events), not a smooth pixel-by-pixel glide.
 - Scrolls whatever window currently has input focus, system-wide — not limited to one app.
-- While running, this script has exclusive control of the mouse device; if it's killed forcefully (e.g. `kill -9`) the grab is still released by the kernel once the file descriptor closes, but expect a brief hiccup in mouse responsiveness during a crash.
+- The trigger button's normal default action (if it has one) isn't suppressed — see the note above.
 
 ## License
 
