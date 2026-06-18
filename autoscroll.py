@@ -28,7 +28,7 @@ from evdev import InputDevice, ecodes, list_devices
 DEVICE_PATH = "/dev/input/event2"     # set after running --list
 TRIGGER_CODE = 274                    # the button you'll hold down, set after --probe
 SCROLL_DIRECTION = -1                 # -1 = scroll down, 1 = scroll up
-SCROLL_INTERVAL = 0.05                # seconds between scroll ticks (lower = faster)
+SCROLL_INTERVAL = 0.07                # seconds between scroll ticks (lower = faster)
 # -----------------------------------------
 
 stop_flag = threading.Event()

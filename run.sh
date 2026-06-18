@@ -22,10 +22,19 @@ if pgrep -x ydotoold > /dev/null 2>&1; then
     echo "ydotoold already running, reusing it."
 else
     echo "Starting ydotoold..."
+
+    # Authenticate up front, in the foreground -- avoids racing a
+    # backgrounded password prompt against the socket-wait check below.
+    sudo -v
+
+    # Remove any stale socket left behind by a previous crashed/killed run,
+    # so the wait loop below only succeeds once the NEW daemon is actually up.
+    rm -f "$SOCKET_PATH"
+
     sudo ydotoold --socket-path="$SOCKET_PATH" --socket-own="$(id -u):$(id -g)" &
     YDOTOOLD_PID=$!
 
-    # wait up to ~4s for the socket to actually appear
+    # wait up to ~4s for the fresh socket to appear
     for _ in $(seq 1 20); do
         [[ -S "$SOCKET_PATH" ]] && break
         sleep 0.2
